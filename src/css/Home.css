@@ -184,6 +184,7 @@
   background: var(--surface2);
   outline: none;
   -webkit-appearance: none;
+  appearance: none;
   margin-bottom: 12px;
 }
 
