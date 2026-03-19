@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { apiRegister } from "../Api";
+import { apiRegister, apiUpdateProfile } from "../Api";
 import "../css/Register.css";
 
 function validateRegister(fullname, email, password, confirmPassword, agreedToTerms) {
@@ -53,10 +53,21 @@ export default function Register({ onSwitch, onLoginSuccess }) {
 
     setLoading(true);
     try {
-      const data = await apiRegister(email, password);
+      const data = await apiRegister(email, password, fullname.trim());
       setSuccessMsg("Account created! Redirecting to dashboard...");
       const displayEmail = data.user?.email || email;
       const token = data.access_token || data.token || "";
+
+      if (token) {
+        try {
+          await apiUpdateProfile(token, {
+            full_name: fullname.trim(),
+          });
+        } catch {
+          // Registration succeeded; profile completion can be retried from Edit Profile.
+        }
+      }
+
       setTimeout(() => onLoginSuccess(displayEmail, token), 1200);
     } catch (e) {
       setApiError(e.message);
