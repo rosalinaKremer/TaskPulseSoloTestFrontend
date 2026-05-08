@@ -22,8 +22,9 @@ export async function apiRegister(email, password, fullName) {
   return data;
 }
 
-export async function apiUpdateProfile(token, payload) {
-  const res = await fetch(`${API_BASE}/user/updateprofile`, {
+// FIXED: Added 'email' parameter and pointed to the correct backend endpoint
+export async function apiUpdateProfile(token, email, payload) {
+  const res = await fetch(`${API_BASE}/user/profile?email=${encodeURIComponent(email)}`, {
     method: "PATCH",
     headers: {
       "Content-Type": "application/json",
@@ -34,5 +35,20 @@ export async function apiUpdateProfile(token, payload) {
 
   const data = await res.json();
   if (!res.ok) throw new Error(data.message || data.error || "Profile update failed");
+  return data;
+}
+
+export async function apiGetProfile(token, email) {
+  // We append the email to the URL so Spring Boot stops complaining
+  const res = await fetch(`${API_BASE}/user/profile?email=${encodeURIComponent(email)}`, {
+    method: "GET",
+    headers: {
+      "Content-Type": "application/json",
+      "Authorization": "Bearer " + token,
+    },
+  });
+
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.message || data.error || "Failed to fetch profile");
   return data;
 }

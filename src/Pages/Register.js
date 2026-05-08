@@ -19,12 +19,12 @@ function validateRegister(fullname, email, password, confirmPassword, agreedToTe
 function EyeIcon({ open }) {
   const color = "#8aa0b8";
   return open ? (
-    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
       <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
       <circle cx="12" cy="12" r="3"/>
     </svg>
   ) : (
-    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
       <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94"/>
       <path d="M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19"/>
       <line x1="1" y1="1" x2="23" y2="23"/>
@@ -60,8 +60,9 @@ export default function Register({ onSwitch, onLoginSuccess }) {
 
       if (token) {
         try {
-          await apiUpdateProfile(token, {
-            full_name: fullname.trim(),
+          await apiUpdateProfile(token, email, {
+            fullName: fullname.trim(),   // Added camelCase
+            full_name: fullname.trim(),  // Kept snake_case for safety
           });
         } catch {
           // Registration succeeded; profile completion can be retried from Edit Profile.
@@ -77,21 +78,65 @@ export default function Register({ onSwitch, onLoginSuccess }) {
   }
 
   return (
-    <div className="register-container">
-      {/* Header */}
-      <div className="register-header">
-        <div className="brand-section">
-          <div className="brand-logo">TaskPulse</div>
-          <div className="welcome-text">Join TaskPulse</div>
-          <div className="welcome-subtitle">Create an account to post tasks and start bidding</div>
+    <div className="register-page">
+      {/* ── Left branding panel (Matches Login) ── */}
+      <div className="register-left">
+        <div className="brand-mark">
+          <div className="brand-icon">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M9 11l3 3L22 4"/>
+              <path d="M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11"/>
+            </svg>
+          </div>
+          <span className="brand-name">TaskPulse</span>
+        </div>
+
+        <div className="brand-copy">
+          <h1>Join your local<br/>community.</h1>
+          <p>Create an account to post your tasks or start earning money on your own schedule.</p>
+        </div>
+
+        <div className="brand-features">
+          <div className="feature-item">
+            <div className="feature-icon">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+              </svg>
+            </div>
+            <span>Secure real-time bidding</span>
+          </div>
+          <div className="feature-item">
+            <div className="feature-icon">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/>
+                <circle cx="9" cy="7" r="4"/>
+                <path d="M23 21v-2a4 4 0 00-3-3.87M16 3.13a4 4 0 010 7.75"/>
+              </svg>
+            </div>
+            <span>Trusted local community</span>
+          </div>
+          <div className="feature-item">
+            <div className="feature-icon">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                <circle cx="12" cy="12" r="10"/>
+                <polyline points="12 6 12 12 16 14"/>
+              </svg>
+            </div>
+            <span>Earn on your own schedule</span>
+          </div>
+        </div>
+
+        <div className="brand-dots">
+          <span /><span /><span />
         </div>
       </div>
 
-      {/* Card */}
-      <div className="form-wrapper">
+      {/* ── Right form panel ── */}
+      <div className="register-right">
         <div className="form-card">
-          <div className="form-header">
+          <div className="form-top">
             <div className="form-title">Create Account</div>
+            <div className="form-sub">Sign up to get started with TaskPulse</div>
           </div>
 
           {apiError && (
@@ -105,9 +150,10 @@ export default function Register({ onSwitch, onLoginSuccess }) {
             </div>
           )}
 
-          {/* Full Name */}
           <div className="form-group">
+            <label className="field-label" htmlFor="reg-fullname">Full Name</label>
             <input
+              id="reg-fullname"
               type="text"
               className={`form-input ${errors.fullname ? "error-input" : ""}`}
               placeholder="Enter your full name"
@@ -117,22 +163,24 @@ export default function Register({ onSwitch, onLoginSuccess }) {
             {errors.fullname && <div className="field-error">⚠ {errors.fullname}</div>}
           </div>
 
-          {/* Email */}
           <div className="form-group">
+            <label className="field-label" htmlFor="reg-email">Email address</label>
             <input
+              id="reg-email"
               type="email"
               className={`form-input ${errors.email ? "error-input" : ""}`}
-              placeholder="Enter your email"
+              placeholder="you@example.com"
               value={email}
               onChange={e => { setEmail(e.target.value); setErrors(p => ({ ...p, email: "" })); }}
             />
             {errors.email && <div className="field-error">⚠ {errors.email}</div>}
           </div>
 
-          {/* Password */}
           <div className="form-group">
+            <label className="field-label" htmlFor="reg-password">Password</label>
             <div className="password-input-wrapper">
               <input
+                id="reg-password"
                 type={showPassword ? "text" : "password"}
                 className={`form-input ${errors.password ? "error-input" : ""}`}
                 placeholder="Create a password"
@@ -146,10 +194,11 @@ export default function Register({ onSwitch, onLoginSuccess }) {
             {errors.password && <div className="field-error">⚠ {errors.password}</div>}
           </div>
 
-          {/* Confirm Password */}
           <div className="form-group">
+            <label className="field-label" htmlFor="reg-confirm">Confirm Password</label>
             <div className="password-input-wrapper">
               <input
+                id="reg-confirm"
                 type={showConfirmPassword ? "text" : "password"}
                 className={`form-input ${errors.confirmPassword ? "error-input" : ""}`}
                 placeholder="Re-enter your password"
@@ -164,7 +213,6 @@ export default function Register({ onSwitch, onLoginSuccess }) {
             {errors.confirmPassword && <div className="field-error">⚠ {errors.confirmPassword}</div>}
           </div>
 
-          {/* Terms & Conditions */}
           <div className="terms-section">
             <div className="checkbox-row">
               <input 
@@ -174,45 +222,39 @@ export default function Register({ onSwitch, onLoginSuccess }) {
                 checked={agreedToTerms}
                 onChange={e => { 
                   setAgreedToTerms(e.target.checked);
-                  if (e.target.checked) {
-                    setErrors(p => ({ ...p, terms: "" }));
-                  }
+                  if (e.target.checked) setErrors(p => ({ ...p, terms: "" }));
                 }}
               />
               <label htmlFor="terms" className="checkbox-label">
-                I agree to the <span className="terms-link">Terms & Conditions</span> and <span className="terms-link">Privacy Policy</span>
+                I agree to the <span className="terms-link">Terms & Conditions</span>
               </label>
             </div>
             {errors.terms && <div className="field-error">⚠ {errors.terms}</div>}
           </div>
 
-          {/* Create Account button */}
-          <button className="btn-primary" onClick={handleSubmit} disabled={loading}>
+          <button className="btn-primary-auth" onClick={handleSubmit} disabled={loading}>
             {loading && <span className="spinner" />}
             {loading ? "Creating account..." : "Create Account"}
           </button>
 
-          {/* Divider */}
-          <div className="divider">
-            <span>OR</span>
-          </div>
+          <div className="divider"><span>OR</span></div>
 
-          {/* Social buttons */}
-          <div className="social-login-section">
+          <div className="social-row">
             <button className="social-btn google-btn">
               <span className="social-icon google-icon"> </span>
-              Sign up with Google
+              Google
             </button>
             <button className="social-btn facebook-btn">
               <span className="social-icon facebook-icon"> </span>
-              Sign up with Facebook
+              Facebook
             </button>
           </div>
 
-          {/* Sign in */}
-          <div className="signup-link-section">
+          <div className="switch-link-section">
             Already have an account?{" "}
-            <button type="button" onClick={onSwitch} className="signup-link">Login</button>
+            <button type="button" onClick={onSwitch} className="switch-link">
+              Sign in
+            </button>
           </div>
         </div>
       </div>

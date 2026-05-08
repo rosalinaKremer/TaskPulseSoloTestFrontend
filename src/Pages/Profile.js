@@ -1,15 +1,13 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import "../css/Profile.css";
+import { apiGetProfile, apiUpdateProfile } from "../Api";
 
-// ── API base URL ──────────────────────────────────────────────
 const API_BASE = "http://localhost:8080/api/user";
-
-// ── API endpoint map (matches your Spring Boot controller) ────
+const TASK_API_BASE = "http://localhost:8080/api/tasks";
 const ENDPOINTS = {
-  getProfile:    `${API_BASE}/profile`,          // GET
-  updateProfile: `${API_BASE}/updateprofile`,    // PATCH  ← fixed
-  uploadPhoto:   `${API_BASE}/upload-photo`,     // POST
-  updatePassword:`${API_BASE}/updatepassword`,         // PUT
+  uploadPhoto:   `${API_BASE}/upload-photo`,
+  updatePassword:`${API_BASE}/updatepassword`,
+  userReviews:   `${TASK_API_BASE}/user-reviews`,
 };
 
 function apiHeaders(token) {
@@ -19,40 +17,32 @@ function apiHeaders(token) {
 function resolvePhotoSrc(profile) {
   const url = profile?.photo_url;
   if (url) return url;
-
   const rawPhoto = profile?.photo;
   if (!rawPhoto) return null;
-
-  if (typeof rawPhoto === "string" && rawPhoto.startsWith("data:image/")) {
-    return rawPhoto;
-  }
-
+  if (typeof rawPhoto === "string" && rawPhoto.startsWith("data:image/")) return rawPhoto;
   return `data:image/jpeg;base64,${rawPhoto}`;
 }
 
-// ── Star renderer ─────────────────────────────────────────────
 function Stars({ rating }) {
   return (
-    <span className="stars">
+    <span className="tp-stars">
       {[1, 2, 3, 4, 5].map(i => (
-        <span key={i} style={{ color: i <= Math.round(rating) ? "#f59e0b" : "#d1d9e6" }}>★</span>
+        <span key={i} style={{ color: i <= Math.round(rating) ? "#f59e0b" : "#e2e8f0" }}>★</span>
       ))}
     </span>
   );
 }
 
-// ── User avatar icon ──────────────────────────────────────────
 function UserIcon() {
   return (
-    <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+    <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
       <circle cx="12" cy="8" r="4" />
       <path d="M4 20c0-4 3.6-7 8-7s8 3 8 7" />
     </svg>
   );
 }
 
-// ── Main Profile Component ────────────────────────────────────
-export default function Profile({ user, token, onLogout, onBack }) {
+export default function Profile({ user, token, onLogout, onBack, isReadOnly }) {
   const [profile, setProfile]       = useState(null);
   const [loading, setLoading]       = useState(true);
   const [error, setError]           = useState("");
@@ -68,17 +58,15 @@ export default function Profile({ user, token, onLogout, onBack }) {
   const [photoPreview, setPhotoPreview] = useState(null);
   const fileRef = useRef();
 
+  // New States for Real Reviews
+  const [taskerReviews, setTaskerReviews] = useState([]);
+  const [posterReviews, setPosterReviews] = useState([]);
+
   function unwrapApiData(payload) {
     if (payload && typeof payload === "object" && !Array.isArray(payload)) {
-      if (payload.success === false) {
-        throw new Error(payload.error || "Request failed");
-      }
-      if (Object.prototype.hasOwnProperty.call(payload, "data")) {
-        return payload.data;
-      }
-      if (Object.prototype.hasOwnProperty.call(payload, "error")) {
-        throw new Error(payload.error || "Request failed");
-      }
+      if (payload.success === false) throw new Error(payload.error || "Request failed");
+      if (Object.prototype.hasOwnProperty.call(payload, "data")) return payload.data;
+      if (Object.prototype.hasOwnProperty.call(payload, "error")) throw new Error(payload.error || "Request failed");
     }
     return payload;
   }
@@ -87,15 +75,8 @@ export default function Profile({ user, token, onLogout, onBack }) {
     setLoading(true);
     setError("");
     try {
-      const res = await fetch(ENDPOINTS.getProfile, {
-        headers: apiHeaders(token),
-        cache: "no-store",
-      });
-      if (!res.ok) {
-        const text = await res.text();
-        throw new Error(`Server ${res.status}: ${text || res.statusText}`);
-      }
-      const raw = await res.json();
+      // 1. Fetch Basic Profile Data
+      const raw = await apiGetProfile(token, user); 
       const data = unwrapApiData(raw);
       let p;
       if (Array.isArray(data)) {
@@ -104,31 +85,33 @@ export default function Profile({ user, token, onLogout, onBack }) {
       } else {
         p = data;
       }
-      if (!p) throw new Error("No profile found. Make sure your profiles table has a row for this user.");
+      if (!p) throw new Error("No profile found.");
       setProfile(p);
       setPhotoPreview(resolvePhotoSrc(p));
-    } catch (e) {
-      if (e.message === "Failed to fetch") {
-        setError("Cannot connect to server. Make sure your Spring Boot app is running on http://localhost:8080");
-      } else {
-        setError(e.message);
+
+      // 2. Fetch Real Reviews
+      try {
+        const revRes = await fetch(`${ENDPOINTS.userReviews}?email=${user}`, { headers: apiHeaders(token) });
+        if (revRes.ok) {
+          const revData = await revRes.json();
+          setTaskerReviews(revData.asTasker || []);
+          setPosterReviews(revData.asPoster || []);
+        }
+      } catch (err) {
+        console.error("Failed to load reviews:", err);
       }
+
+    } catch (e) {
+      setError(e.message === "Failed to fetch" ? "Cannot connect to server." : e.message);
     } finally {
       setLoading(false);
     }
   }, [token, user]);
 
-  // ── Fetch profile on mount ──────────────────────────────────
-  useEffect(() => {
-    fetchProfile();
-  }, [fetchProfile]);
+  useEffect(() => { fetchProfile(); }, [fetchProfile]);
 
-  // ── Open edit modal ─────────────────────────────────────────
   function openEdit() {
-    setEditData({
-      full_name:    profile?.full_name    || "",
-      bio:          profile?.bio          || "",
-    });
+    setEditData({ full_name: profile?.full_name || "", bio: profile?.bio || "" });
     setSaveMsg("");
     setShowEdit(true);
   }
@@ -139,46 +122,24 @@ export default function Profile({ user, token, onLogout, onBack }) {
     setShowPasswordEdit(true);
   }
 
-  // ── Save profile ────────────────────────────────────────────
   async function saveProfile() {
     setSaving(true);
     setSaveMsg("");
     try {
-      const payload = {
-        full_name: editData.full_name,
-        bio: editData.bio,
-      };
-      const res = await fetch(ENDPOINTS.updateProfile, {
-        method: "PATCH",
-        headers: apiHeaders(token),
-        body: JSON.stringify(payload),
-      });
-      if (!res.ok) {
-        const text = await res.text();
-        throw new Error(`Server ${res.status}: ${text || res.statusText}`);
-      }
-      const raw = await res.json();
+      const payload = { full_name: editData.full_name, fullName: editData.full_name, bio: editData.bio };
+      const raw = await apiUpdateProfile(token, user, payload);
       const updated = unwrapApiData(raw);
-      if (Array.isArray(updated) && updated.length === 0) {
-        throw new Error("No rows were updated in Supabase. Check your backend WHERE clause and RLS policy.");
-      }
+      if (Array.isArray(updated) && updated.length === 0) throw new Error("No rows were updated.");
 
       const updatedRow = Array.isArray(updated) ? updated[0] : updated;
-      if (updatedRow && typeof updatedRow === "object") {
-        setProfile(prev => ({ ...(prev || {}), ...updatedRow }));
-      } else {
-        setProfile(prev => ({ ...(prev || {}), ...payload }));
-      }
+      if (updatedRow && typeof updatedRow === "object") setProfile(prev => ({ ...(prev || {}), ...updatedRow }));
+      else setProfile(prev => ({ ...(prev || {}), ...payload }));
 
       setSaveMsg("success:Profile updated successfully!");
       await fetchProfile();
       setTimeout(() => setShowEdit(false), 1000);
     } catch (e) {
-      if (e.message === "Failed to fetch") {
-        setSaveMsg("error:Cannot connect to server. Make sure Spring Boot is running on port 8080.");
-      } else {
-        setSaveMsg("error:" + e.message);
-      }
+      setSaveMsg("error:" + (e.message === "Failed to fetch" ? "Cannot connect to server." : e.message));
     } finally {
       setSaving(false);
     }
@@ -186,341 +147,246 @@ export default function Profile({ user, token, onLogout, onBack }) {
 
   async function savePassword() {
     setPasswordMsg("");
-    if (!passwordData.oldPassword) {
-      setPasswordMsg("error:Please enter your old password.");
-      return;
-    }
-    if (!passwordData.password || !passwordData.confirmPassword) {
-      setPasswordMsg("error:Please enter and confirm your new password.");
-      return;
-    }
-    if (passwordData.password !== passwordData.confirmPassword) {
-      setPasswordMsg("error:Passwords do not match.");
-      return;
-    }
-    if (passwordData.oldPassword === passwordData.password) {
-      setPasswordMsg("error:New password must be different from old password.");
-      return;
-    }
-    if (passwordData.password.length < 6) {
-      setPasswordMsg("error:Password must be at least 6 characters.");
-      return;
-    }
+    if (!passwordData.oldPassword) return setPasswordMsg("error:Please enter your old password.");
+    if (!passwordData.password || !passwordData.confirmPassword) return setPasswordMsg("error:Please enter and confirm your new password.");
+    if (passwordData.password !== passwordData.confirmPassword) return setPasswordMsg("error:Passwords do not match.");
+    if (passwordData.oldPassword === passwordData.password) return setPasswordMsg("error:New password must be different from old password.");
+    if (passwordData.password.length < 6) return setPasswordMsg("error:Password must be at least 6 characters.");
 
     setPasswordSaving(true);
     try {
       const res = await fetch(ENDPOINTS.updatePassword, {
         method: "PUT",
         headers: apiHeaders(token),
-        body: JSON.stringify({
-          oldPassword: passwordData.oldPassword,
-          newPassword: passwordData.password,
-          password: passwordData.password,
-        }),
+        body: JSON.stringify({ oldPassword: passwordData.oldPassword, newPassword: passwordData.password, password: passwordData.password }),
       });
-      if (!res.ok) {
-        const text = await res.text();
-        throw new Error(`Server ${res.status}: ${text || res.statusText}`);
-      }
-
-      const raw = await res.json();
-      unwrapApiData(raw);
+      if (!res.ok) throw new Error(`Server ${res.status}: ${await res.text() || res.statusText}`);
+      
+      unwrapApiData(await res.json());
       setPasswordMsg("success:Password updated successfully!");
       setPasswordData({ oldPassword: "", password: "", confirmPassword: "" });
     } catch (e) {
-      if (e.message === "Failed to fetch") {
-        setPasswordMsg("error:Cannot connect to server. Make sure Spring Boot is running on port 8080.");
-      } else {
-        setPasswordMsg("error:" + e.message);
-      }
+      setPasswordMsg("error:" + e.message);
     } finally {
       setPasswordSaving(false);
     }
   }
 
-  // ── Upload photo ────────────────────────────────────────────
   async function handlePhotoChange(e) {
     const file = e.target.files[0];
     if (!file) return;
 
-    // Preview locally
     const reader = new FileReader();
     reader.onload = ev => setPhotoPreview(ev.target.result);
     reader.readAsDataURL(file);
 
-    // Upload to API
     const formData = new FormData();
     formData.append("photo", file);
+    formData.append("email", user);
+
     try {
-      const res = await fetch(ENDPOINTS.uploadPhoto, {
-        method: "POST",
-        headers: { "Authorization": "Bearer " + token },
-        body: formData,
-      });
-      if (!res.ok) {
-        const text = await res.text();
-        throw new Error(`Server ${res.status}: ${text || res.statusText}`);
-      }
+      const res = await fetch(ENDPOINTS.uploadPhoto, { method: "POST", headers: { "Authorization": "Bearer " + token }, body: formData });
+      if (!res.ok) throw new Error(`Server ${res.status}: ${await res.text() || res.statusText}`);
       await fetchProfile();
     } catch (e) {
-      if (e.message === "Failed to fetch") {
-        alert("Cannot connect to server. Make sure Spring Boot is running on port 8080.");
-      } else {
-        alert("Photo upload failed: " + e.message);
-      }
+      alert("Photo upload failed: " + e.message);
     }
   }
 
-  // ── Render stars helper ─────────────────────────────────────
-  const rating    = profile?.rating        || 4.9;
-  const reviews   = profile?.reviews_count || 35;
-  const location  = profile?.location      || "Quezon City, Metro Manila";
-  const memberSince = profile?.member_since || "January 2024";
-  const full_name  = profile?.full_name || profile?.fullName || profile?.email?.split("@")[0] || "Your Name";
-  const about     = profile?.bio           || "No bio yet. Click Edit Profile to add one.";
-  const skillsRaw = profile?.skills        || "";
+  // Calculate Dynamic Ratings based on REAL database reviews
+  const allReviews = [...taskerReviews, ...posterReviews];
+  const reviewsCount = allReviews.length;
+  const computedRating = reviewsCount > 0 
+    ? (allReviews.reduce((sum, r) => sum + Number(r.rating), 0) / reviewsCount).toFixed(1) 
+    : 0;
+
+  const rating    = computedRating > 0 ? computedRating : (profile?.rating || 0);
+  const location  = profile?.location || "Cebu City, Philippines";
+  const memberSince = profile?.member_since || "2024";
+  const full_name = profile?.full_name || profile?.fullName || profile?.email?.split("@")[0] || "Your Name";
+  const about     = profile?.bio || "No bio yet. Click Edit Profile to add one and let your community know what you can do!";
+  const skillsRaw = profile?.skills || "General Help, Organization";
   const skillList = skillsRaw ? skillsRaw.split(",").map(s => s.trim()).filter(Boolean) : [];
-  const email     = profile?.email         || "";
-  const phone     = profile?.phone         || "";
+  
+  // Real Statistics
+  const taskerStats = { completed: taskerReviews.length, successRate: taskerReviews.length > 0 ? "100%" : "0%" };
+  const posterStats = { posted: posterReviews.length, avgResponse: "Within 24 hrs" };
 
-  // Mock stats (replace with real data from your API if available)
-  const taskerStats  = { completed: profile?.tasks_completed || 24, successRate: profile?.success_rate || "96%" };
-  const posterStats  = { posted: profile?.tasks_posted || 12, completed: profile?.poster_completed || 10, avgResponse: profile?.avg_response || "2 hrs" };
+  const reviewsToShow = activeTab === "tasker" ? taskerReviews : posterReviews;
 
-  // Mock reviews (replace with real reviews API when available)
-  const mockTaskerReviews = [
-    { id: 1, name: "Maria Santos",   date: "March 5, 2026",    rating: 5, text: "Excellent work! Fixed our leaking pipes quickly and professionally. Very reasonable pricing and cleaned up after. Highly recommend!" },
-    { id: 2, name: "Roberto Gomez",  date: "March 1, 2026",    rating: 5, text: "Very professional and skilled. Installed our ceiling fan perfectly and also fixed some electrical outlets. Great service!" },
-    { id: 3, name: "Ana Rodriguez",  date: "February 28, 2026", rating: 4, text: "Good work overall. Was punctual and completed the carpentry project as discussed. Would hire again." },
-  ];
-  const mockPosterReviews = [
-    { id: 4, name: "Carlo Reyes",    date: "February 20, 2026", rating: 5, text: "Clear instructions and paid on time. Great poster to work with!" },
-    { id: 5, name: "Liza Mendoza",   date: "February 10, 2026", rating: 4, text: "Good communication throughout the project." },
-  ];
-
-  const reviewsToShow = activeTab === "tasker" ? mockTaskerReviews : mockPosterReviews;
-
-  // ── Loading state ───────────────────────────────────────────
   if (loading) return (
-    <div>
-      <nav className="navbar">
-        <span className="navbar-brand">TaskPulse</span>
-      </nav>
-      <div className="loading-screen">
-        <div className="spinner" /> Loading profile...
-      </div>
+    <div className="tp-profile-root">
+      <header className="tp-profile-header"><div className="tp-brand">TaskPulse</div></header>
+      <div className="tp-loading-state"><div className="tp-spinner" /> Loading profile...</div>
     </div>
   );
 
-  // ── Error state ─────────────────────────────────────────────
   if (error) return (
-    <div>
-      <nav className="navbar">
-        <span className="navbar-brand">TaskPulse</span>
-      </nav>
-      <div className="loading-screen" style={{ color: "#dc2626" }}>
-        ⚠ {error} — <button onClick={fetchProfile} style={{ color: "#2563eb", background: "none", border: "none", cursor: "pointer", textDecoration: "underline" }}>Retry</button>
+    <div className="tp-profile-root">
+      <header className="tp-profile-header"><div className="tp-brand">TaskPulse</div></header>
+      <div className="tp-error-state">
+        <div className="tp-error-icon">⚠</div>
+        <h2>Oops, something went wrong</h2>
+        <p>{error}</p>
+        <div className="tp-error-actions">
+          <button onClick={fetchProfile} className="tp-btn-secondary">Try Again</button>
+          <button onClick={onBack} className="tp-btn-primary">Return Home</button>
+        </div>
       </div>
     </div>
   );
 
   return (
-    <div>
-      {/* ── Navbar ── */}
-      <nav className="navbar">
-        <span className="navbar-brand">TaskPulse</span>
-        <div className="navbar-search">
-          <span className="search-icon">🔍</span>
-          <input type="text" placeholder="Search for tasks..." />
+    <div className="tp-profile-root">
+      <header className="tp-profile-header">
+        <div className="tp-brand">TaskPulse</div>
+        <div className="tp-header-actions">
+          {onBack && <button className="tp-header-btn-text" onClick={onBack}>← Back to Feed</button>}
+          {onLogout && <button className="tp-header-btn-outline" onClick={onLogout}>Logout</button>}
         </div>
-        <div className="navbar-links">
-          {onBack && (
-            <button className="nav-link" onClick={onBack}>← Back</button>
-          )}
-          <button className="nav-link">Browse Tasks</button>
-          <button className="nav-link">My Bids</button>
-          <button className="nav-link">My Tasks</button>
-          {onLogout && (
-            <button className="nav-link" onClick={onLogout}>Logout</button>
-          )}
-          <div className="nav-avatar">
-            {photoPreview
-              ? <img src={photoPreview} alt="avatar" />
-              : <UserIcon />}
+      </header>
+
+      <main className="tp-profile-main">
+        <div className="tp-hero-card">
+          <div className="tp-hero-banner"></div>
+          <div className="tp-hero-content">
+            <div className="tp-avatar-container">
+              <div className="tp-avatar-ring">
+                {photoPreview ? <img src={photoPreview} alt="avatar" /> : <UserIcon />}
+              </div>
+              {!isReadOnly && (
+                <>
+                  <button className="tp-avatar-edit-btn" onClick={() => fileRef.current.click()}>
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M12 20h9"></path><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"></path></svg>
+                  </button>
+                  <input ref={fileRef} type="file" accept="image/*" style={{ display: "none" }} onChange={handlePhotoChange} />
+                </>
+              )}
+            </div>
+
+            <div className="tp-hero-info">
+              <h1 className="tp-hero-name">{full_name}</h1>
+              <div className="tp-hero-badges">
+                <span className="tp-badge-location">📍 {location}</span>
+                <span className="tp-badge-date">🗓 Member since {memberSince}</span>
+              </div>
+              <div className="tp-hero-rating">
+                {rating > 0 ? (
+                  <>
+                    <Stars rating={rating} />
+                    <span className="tp-rating-text">{rating} ({reviewsCount} reviews)</span>
+                  </>
+                ) : (
+                  <span className="tp-rating-text" style={{color: '#94a3b8', fontStyle: 'italic'}}>No reviews yet</span>
+                )}
+              </div>
+            </div>
+
+            <div className="tp-hero-actions">
+                {!isReadOnly && (
+                  <>
+                    <button className="tp-btn-primary" onClick={openEdit}>Edit Profile</button>
+                    <button className="tp-btn-secondary" onClick={openPasswordEdit}>Security</button>
+                  </>
+                )}
+            </div>
           </div>
         </div>
-      </nav>
 
-      {/* ── Page body ── */}
-      <div className="profile-page">
+        <div className="tp-metrics-grid">
+          <div className="tp-metric-card">
+            <div className="tp-metric-val">{taskerStats.completed}</div>
+            <div className="tp-metric-label">Tasks Done</div>
+          </div>
+          <div className="tp-metric-card">
+            <div className="tp-metric-val">{taskerStats.successRate}</div>
+            <div className="tp-metric-label">Success Rate</div>
+          </div>
+          <div className="tp-metric-card">
+            <div className="tp-metric-val">{posterStats.posted}</div>
+            <div className="tp-metric-label">Tasks Posted</div>
+          </div>
+          <div className="tp-metric-card">
+            <div className="tp-metric-val">{posterStats.avgResponse}</div>
+            <div className="tp-metric-label">Avg Response</div>
+          </div>
+        </div>
 
-        {/* ── LEFT SIDEBAR ── */}
-        <div className="sidebar">
-          <div className="profile-card">
-
-            {/* Avatar + name + rating */}
-            <div className="profile-avatar-section">
-              <div className="avatar-wrapper">
-                <div className="avatar-circle" onClick={() => fileRef.current.click()}>
-                  {photoPreview
-                    ? <img src={photoPreview} alt="profile" />
-                    : <UserIcon />}
+        <div className="tp-content-split">
+          <div className="tp-split-left">
+            <div className="tp-card tp-about-card">
+              <h2>About Me</h2>
+              <p>{about}</p>
+            </div>
+            {skillList.length > 0 && (
+              <div className="tp-card tp-skills-card">
+                <h2>Verified Skills</h2>
+                <div className="tp-skills-wrap">
+                  {skillList.map((skill, i) => <span key={i} className="tp-skill-pill">{skill}</span>)}
                 </div>
-                <div className="avatar-upload-btn" onClick={() => fileRef.current.click()}>✏</div>
-                <input
-                  ref={fileRef}
-                  type="file"
-                  accept="image/*"
-                  style={{ display: "none" }}
-                  onChange={handlePhotoChange}
-                />
-              </div>
-
-              <div className="profile-name">{full_name}</div>
-
-              <div className="profile-rating">
-                <Stars rating={rating} />
-                <span className="rating-text">{rating} ({reviews} reviews)</span>
-              </div>
-
-              <div className="profile-meta">
-                <div className="meta-item">📍 {location}</div>
-                <div className="meta-item">📅 Member since {memberSince}</div>
-              </div>
-
-              <button className="edit-profile-btn" onClick={openEdit}>
-                ✏ Edit Profile
-              </button>
-              <button className="edit-profile-btn" onClick={openPasswordEdit} style={{ marginTop: "10px" }}>
-                🔒 Change Password
-              </button>
-            </div>
-
-            {/* As Tasker stats */}
-            <div className="stats-section">
-              <div className="stats-section-title">As Tasker</div>
-              <div className="stat-row">
-                <span className="stat-label">Tasks Completed</span>
-                <span className="stat-value">{taskerStats.completed}</span>
-              </div>
-              <div className="stat-row">
-                <span className="stat-label">Success Rate</span>
-                <span className="stat-value">{taskerStats.successRate}</span>
-              </div>
-            </div>
-
-            {/* As Task Poster stats */}
-            <div className="stats-section">
-              <div className="stats-section-title">As Task Poster</div>
-              <div className="stat-row">
-                <span className="stat-label">Tasks Posted</span>
-                <span className="stat-value">{posterStats.posted}</span>
-              </div>
-              <div className="stat-row">
-                <span className="stat-label">Tasks Completed</span>
-                <span className="stat-value">{posterStats.completed}</span>
-              </div>
-              <div className="stat-row">
-                <span className="stat-label">Avg Response Time</span>
-                <span className="stat-value">{posterStats.avgResponse}</span>
-              </div>
-            </div>
-
-            {/* Contact info */}
-            {(email || phone) && (
-              <div className="contact-section">
-                {email && <div className="contact-item">✉ {email}</div>}
-                {phone && <div className="contact-item">📞 {phone}</div>}
               </div>
             )}
           </div>
-        </div>
 
-        {/* ── RIGHT CONTENT ── */}
-        <div className="right-content">
-
-          {/* About Me */}
-          <div className="card">
-            <div className="section-title">About Me</div>
-            <p className="about-text">{about}</p>
-          </div>
-
-          {/* Skills & Services */}
-          {skillList.length > 0 && (
-            <div className="card">
-              <div className="section-title">Skills &amp; Services</div>
-              <div className="skills-grid">
-                {skillList.map((skill, i) => (
-                  <span key={i} className="skill-tag">{skill}</span>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {/* Reviews */}
-          <div className="card">
-            <div className="section-title">Reviews</div>
-            <div className="review-tabs">
-              <button
-                className={`review-tab ${activeTab === "tasker" ? "active" : ""}`}
-                onClick={() => setActiveTab("tasker")}
-              >
-                As Tasker ({mockTaskerReviews.length})
-              </button>
-              <button
-                className={`review-tab ${activeTab === "poster" ? "active" : ""}`}
-                onClick={() => setActiveTab("poster")}
-              >
-                As Poster ({mockPosterReviews.length})
-              </button>
-            </div>
-
-            {reviewsToShow.map(review => (
-              <div key={review.id} className="review-item">
-                <div className="reviewer-header">
-                  <div className="reviewer-avatar">
-                    <UserIcon />
-                  </div>
-                  <div>
-                    <div className="reviewer-name">{review.name}</div>
-                    <div className="review-date">{review.date}</div>
-                  </div>
+          <div className="tp-split-right">
+            <div className="tp-card tp-reviews-card">
+              <div className="tp-reviews-header">
+                <h2>Community Reviews</h2>
+                <div className="tp-review-toggles">
+                  <button className={activeTab === "tasker" ? "active" : ""} onClick={() => setActiveTab("tasker")}>As Tasker</button>
+                  <button className={activeTab === "poster" ? "active" : ""} onClick={() => setActiveTab("poster")}>As Poster</button>
                 </div>
-                <div className="review-stars"><Stars rating={review.rating} /></div>
-                <p className="review-text">{review.text}</p>
               </div>
-            ))}
+
+              <div className="tp-reviews-list">
+                {reviewsToShow.length === 0 ? (
+                  <div className="tp-no-reviews">No reviews yet.</div>
+                ) : (
+                  reviewsToShow.map(review => (
+                    <div key={review.id} className="tp-review-item">
+                      <div className="tp-reviewer-row">
+                        <div className="tp-reviewer-pic">
+                          <div style={{ width: '40px', height: '40px', borderRadius: '50%', background: '#dbeafe', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#2563eb', fontWeight: 'bold' }}>
+                            {review.name.charAt(0).toUpperCase()}
+                          </div>
+                        </div>
+                        <div className="tp-reviewer-info">
+                          <h4 style={{marginBottom: '0.1rem'}}>{review.name}</h4>
+                          <span style={{fontSize: '0.75rem', color: '#64748b'}}>Task: {review.taskTitle} • {review.date}</span>
+                        </div>
+                        <div className="tp-review-score" style={{marginLeft: 'auto'}}><Stars rating={review.rating} /></div>
+                      </div>
+                      <p className="tp-review-body" style={{marginTop: '0.75rem'}}>"{review.text}"</p>
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>
           </div>
         </div>
-      </div>
+      </main>
 
       {/* ── Edit Profile Modal ── */}
       {showEdit && (
-        <div className="modal-overlay" onClick={e => e.target === e.currentTarget && setShowEdit(false)}>
-          <div className="modal-card">
-            <div className="modal-title">Edit Profile</div>
-
+        <div className="tp-modal-overlay" onClick={e => e.target === e.currentTarget && setShowEdit(false)}>
+          <div className="tp-modal">
+            <h2>Edit Profile</h2>
             {saveMsg && (
-              <div className={`alert-bar ${saveMsg.startsWith("success") ? "success" : "error"}`}>
-                {saveMsg.startsWith("success") ? "✓" : "⚠"} {saveMsg.replace(/^(success|error):/, "")}
+              <div className={`tp-alert ${saveMsg.startsWith("success") ? "success" : "error"}`}>
+                {saveMsg.replace(/^(success|error):/, "")}
               </div>
             )}
-
-            <div className="modal-field">
-              <label className="modal-label">Full Name</label>
-              <input className="modal-input" value={editData.full_name}
-                onChange={e => setEditData(p => ({ ...p, full_name: e.target.value }))} />
+            <div className="tp-input-group">
+              <label>Full Name</label>
+              <input value={editData.full_name} onChange={e => setEditData(p => ({ ...p, full_name: e.target.value }))} />
             </div>
-
-            <div className="modal-field">
-              <label className="modal-label">About Me</label>
-              <textarea className="modal-textarea" value={editData.bio}
-                onChange={e => setEditData(p => ({ ...p, bio: e.target.value }))} />
+            <div className="tp-input-group">
+              <label>About Me</label>
+              <textarea value={editData.bio} onChange={e => setEditData(p => ({ ...p, bio: e.target.value }))} />
             </div>
-
-            <div className="modal-actions">
-              <button className="btn-cancel" onClick={() => setShowEdit(false)}>Cancel</button>
-              <button className="btn-save" onClick={saveProfile} disabled={saving}>
+            <div className="tp-modal-actions">
+              <button className="tp-btn-text" onClick={() => setShowEdit(false)}>Cancel</button>
+              <button className="tp-btn-primary" onClick={saveProfile} disabled={saving}>
                 {saving ? "Saving..." : "Save Changes"}
               </button>
             </div>
@@ -530,49 +396,29 @@ export default function Profile({ user, token, onLogout, onBack }) {
 
       {/* ── Change Password Modal ── */}
       {showPasswordEdit && (
-        <div className="modal-overlay" onClick={e => e.target === e.currentTarget && setShowPasswordEdit(false)}>
-          <div className="modal-card">
-            <div className="modal-title">Change Password</div>
-
-            <div className="modal-field" style={{ marginTop: "20px", paddingTop: "16px", borderTop: "1px solid #e5e7eb" }}>
-              <label className="modal-label">Old Password</label>
-              <input
-                className="modal-input"
-                type="password"
-                value={passwordData.oldPassword}
-                onChange={e => setPasswordData(p => ({ ...p, oldPassword: e.target.value }))}
-              />
-            </div>
-
-            <div className="modal-field">
-              <label className="modal-label">New Password</label>
-              <input
-                className="modal-input"
-                type="password"
-                value={passwordData.password}
-                onChange={e => setPasswordData(p => ({ ...p, password: e.target.value }))}
-              />
-            </div>
-
-            <div className="modal-field">
-              <label className="modal-label">Confirm New Password</label>
-              <input
-                className="modal-input"
-                type="password"
-                value={passwordData.confirmPassword}
-                onChange={e => setPasswordData(p => ({ ...p, confirmPassword: e.target.value }))}
-              />
-            </div>
-
+        <div className="tp-modal-overlay" onClick={e => e.target === e.currentTarget && setShowPasswordEdit(false)}>
+          <div className="tp-modal">
+            <h2>Security Settings</h2>
             {passwordMsg && (
-              <div className={`alert-bar ${passwordMsg.startsWith("success") ? "success" : "error"}`}>
-                {passwordMsg.startsWith("success") ? "✓" : "⚠"} {passwordMsg.replace(/^(success|error):/, "")}
+              <div className={`tp-alert ${passwordMsg.startsWith("success") ? "success" : "error"}`}>
+                {passwordMsg.replace(/^(success|error):/, "")}
               </div>
             )}
-
-            <div className="modal-actions">
-              <button className="btn-cancel" onClick={() => setShowPasswordEdit(false)}>Cancel</button>
-              <button className="btn-save" onClick={savePassword} disabled={passwordSaving}>
+            <div className="tp-input-group" style={{marginTop: "1.5rem"}}>
+              <label>Current Password</label>
+              <input type="password" value={passwordData.oldPassword} onChange={e => setPasswordData(p => ({ ...p, oldPassword: e.target.value }))} />
+            </div>
+            <div className="tp-input-group">
+              <label>New Password</label>
+              <input type="password" value={passwordData.password} onChange={e => setPasswordData(p => ({ ...p, password: e.target.value }))} />
+            </div>
+            <div className="tp-input-group">
+              <label>Confirm New Password</label>
+              <input type="password" value={passwordData.confirmPassword} onChange={e => setPasswordData(p => ({ ...p, confirmPassword: e.target.value }))} />
+            </div>
+            <div className="tp-modal-actions">
+              <button className="tp-btn-text" onClick={() => setShowPasswordEdit(false)}>Cancel</button>
+              <button className="tp-btn-primary" onClick={savePassword} disabled={passwordSaving}>
                 {passwordSaving ? "Updating..." : "Update Password"}
               </button>
             </div>
