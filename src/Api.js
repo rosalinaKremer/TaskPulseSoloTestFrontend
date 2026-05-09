@@ -1,4 +1,5 @@
-const API_BASE = "http://localhost:8080/api";
+// Example logic for Api.js
+const API_BASE = process.env.REACT_APP_API_URL || "http://localhost:8080/api";
 
 export async function apiLogin(email, password) {
   const res = await fetch(`${API_BASE}/auth/login`, {
