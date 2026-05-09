@@ -3,7 +3,7 @@ import "../css/Home.css";
 import Profile from "./Profile";
 
 const HOME_VIEW_KEY = "taskpulse.homeView";
-const API_BASE = "http://localhost:8080/api/tasks";
+const API_BASE = process.env.REACT_APP_API_URL || "http://localhost:8080/api";
 
 function CategoryIcon({ name }) {
   const svgProps = { width: "18", height: "18", viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: "2", strokeLinecap: "round", strokeLinejoin: "round" };
@@ -69,7 +69,7 @@ export default function Home({ user, token, onLogout }) {
   const [viewTaskModal, setViewTaskModal] = useState({ isOpen: false, task: null });
   const [verifyModal, setVerifyModal] = useState({ isOpen: false, task: null, file: null, preview: null });
 
-  // NEW: Rating/Review Modal States
+  // Rating/Review Modal States
   const [leaveReviewModal, setLeaveReviewModal] = useState({ isOpen: false, role: '', task: null });
   const [reviewForm, setReviewForm] = useState({ rating: 5, text: "" });
 
@@ -78,15 +78,15 @@ export default function Home({ user, token, onLogout }) {
     try {
       const headers = { "Authorization": "Bearer " + token };
       
-      const tasksRes = await fetch(`${API_BASE}/available`, { headers });
+      const tasksRes = await fetch(`${API_BASE}/tasks/available`, { headers });
       const tasksData = await tasksRes.json();
       if (Array.isArray(tasksData)) setTasks(tasksData);
 
-      const postsRes = await fetch(`${API_BASE}/my-posts?email=${user}`, { headers });
+      const postsRes = await fetch(`${API_BASE}/tasks/my-posts?email=${user}`, { headers });
       const postsData = await postsRes.json();
       if (Array.isArray(postsData)) setMyPosts(postsData);
 
-      const bidsRes = await fetch(`http://localhost:8080/api/bids/my-bids?email=${user}`, { headers });
+      const bidsRes = await fetch(`${API_BASE}/bids/my-bids?email=${user}`, { headers }); 
       const bidsData = await bidsRes.json();
       if (Array.isArray(bidsData)) setMyBids(bidsData);
     } catch (e) {
@@ -104,7 +104,7 @@ export default function Home({ user, token, onLogout }) {
     setIsSubmitting(true);
     try {
       const isEdit = taskModal.mode === 'edit';
-      const url = isEdit ? `${API_BASE}/${taskModal.id}?email=${user}` : `${API_BASE}?email=${user}`;
+      const url = isEdit ? `${API_BASE}/tasks/${taskModal.id}?email=${user}` : `${API_BASE}/tasks?email=${user}`;
       const method = isEdit ? "PUT" : "POST";
       const res = await fetch(url, { method, headers: { "Authorization": "Bearer " + token, "Content-Type": "application/json" }, body: JSON.stringify(taskForm) });
       const data = await res.json();
@@ -120,8 +120,8 @@ export default function Home({ user, token, onLogout }) {
     try {
       const isEdit = bidModal.mode === 'edit';
       const url = isEdit 
-        ? `http://localhost:8080/api/bids/${bidModal.bidId}?email=${user}` 
-        : `http://localhost:8080/api/bids/task/${bidModal.task.id}?email=${user}`;
+        ? `${API_BASE}/bids/${bidModal.bidId}?email=${user}` 
+        : `${API_BASE}/bids/task/${bidModal.task.id}?email=${user}`;
       const method = isEdit ? "PUT" : "POST";
       const res = await fetch(url, { method, headers: { "Authorization": "Bearer " + token, "Content-Type": "application/json" }, body: JSON.stringify(bidForm) });
       const data = await res.json();
@@ -135,7 +135,7 @@ export default function Home({ user, token, onLogout }) {
   const handleCancelBid = async (bidId) => {
     if (!window.confirm("Are you sure you want to withdraw your bid?")) return;
     try {
-      const res = await fetch(`http://localhost:8080/api/bids/${bidId}?email=${user}`, { method: "DELETE", headers: { "Authorization": "Bearer " + token } });
+      const res = await fetch(`${API_BASE}/bids/${bidId}?email=${user}`, { method: "DELETE", headers: { "Authorization": "Bearer " + token } });
       const data = await res.json();
       if (!data.success) throw new Error(data.error);
       await loadData();
@@ -144,7 +144,7 @@ export default function Home({ user, token, onLogout }) {
 
   const handleOpenReviewBids = async (task) => {
     try {
-      const res = await fetch(`http://localhost:8080/api/bids/task/${task.id}?email=${user}`, { headers: { "Authorization": "Bearer " + token } });
+      const res = await fetch(`${API_BASE}/bids/task/${task.id}?email=${user}`, { headers: { "Authorization": "Bearer " + token } });
       const data = await res.json();
       if (!data.success) throw new Error(data.error);
       setReviewBidsModal({ isOpen: true, task: task, bidsList: data.bids || [] });
@@ -154,7 +154,7 @@ export default function Home({ user, token, onLogout }) {
   const handleAcceptBid = async (bidId) => {
     if (!window.confirm("Are you sure you want to hire this person?")) return;
     try {
-      const res = await fetch(`http://localhost:8080/api/bids/${bidId}/accept?email=${user}`, { method: "POST", headers: { "Authorization": "Bearer " + token } });
+      const res = await fetch(`${API_BASE}/bids/${bidId}/accept?email=${user}`, { method: "POST", headers: { "Authorization": "Bearer " + token } });
       const data = await res.json();
       if (!data.success) throw new Error(data.error);
       alert("Bid accepted! The task is now in progress.");
@@ -178,7 +178,7 @@ export default function Home({ user, token, onLogout }) {
       const formData = new FormData();
       formData.append("photo", verifyModal.file);
 
-      const res = await fetch(`${API_BASE}/${verifyModal.task.id}/verify-finish?email=${user}`, { 
+      const res = await fetch(`${API_BASE}/tasks/${verifyModal.task.id}/verify-finish?email=${user}`, { 
         method: "POST", 
         headers: { "Authorization": "Bearer " + token },
         body: formData
@@ -191,7 +191,7 @@ export default function Home({ user, token, onLogout }) {
     } catch (err) { alert(err.message); } finally { setIsSubmitting(false); }
   };
 
-  // NEW: Submit Review logic for both Poster and Tasker
+  // Submit Review logic for both Poster and Tasker
   const submitReview = async (e) => {
     e.preventDefault();
     if (!reviewForm.text) return alert("Please write a short review.");
@@ -199,7 +199,7 @@ export default function Home({ user, token, onLogout }) {
     try {
       const isPoster = leaveReviewModal.role === 'poster';
       const endpoint = isPoster ? 'confirm' : 'rate-poster';
-      const url = `${API_BASE}/${leaveReviewModal.task.id}/${endpoint}?email=${user}&rating=${reviewForm.rating}&reviewText=${encodeURIComponent(reviewForm.text)}`;
+      const url = `${API_BASE}/tasks/${leaveReviewModal.task.id}/${endpoint}?email=${user}&rating=${reviewForm.rating}&reviewText=${encodeURIComponent(reviewForm.text)}`;
       
       const res = await fetch(url, { method: "POST", headers: { "Authorization": "Bearer " + token } });
       const data = await res.json();
@@ -435,7 +435,6 @@ export default function Home({ user, token, onLogout }) {
                     {bid.status === 'ACCEPTED' && bid.task.status === 'IN_PROGRESS' && (
                         <button className="tp-gig-action-btn" style={{width: '100%', marginTop: '0.5rem', background: '#3b82f6', color: 'white'}} onClick={() => setVerifyModal({ isOpen: true, task: bid.task, file: null, preview: null })}>Upload Work Proof</button>
                     )}
-                    {/* NEW: Allow Tasker to rate Poster if Completed and not rated yet */}
                     {bid.status === 'ACCEPTED' && bid.task.status === 'COMPLETED' && !bid.task.taskerToPosterRating && (
                         <button className="tp-gig-action-btn" style={{width: '100%', marginTop: '0.5rem', background: '#f59e0b', color: 'white'}} onClick={() => { setLeaveReviewModal({ isOpen: true, role: 'tasker', task: bid.task }); setReviewForm({ rating: 5, text: "" }); }}>Rate the Poster</button>
                     )}
@@ -622,7 +621,6 @@ export default function Home({ user, token, onLogout }) {
                       style={{ width: '100%', borderRadius: '8px', border: '1px solid #cbd5e1' }} 
                    />
                    {appMode === 'poster' && (
-                     // Changed to open the Review modal instead of direct confirmation
                      <button className="tp-btn-apply" style={{ width: '100%', marginTop: '1.5rem', background: '#10b981', fontSize: '1rem', padding: '1rem' }} onClick={() => {
                         setLeaveReviewModal({ isOpen: true, role: 'poster', task: viewTaskModal.task });
                         setReviewForm({ rating: 5, text: "" });
