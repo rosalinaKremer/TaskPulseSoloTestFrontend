@@ -2,8 +2,10 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import "../css/Profile.css";
 import { apiGetProfile, apiUpdateProfile } from "../Api";
 
-const API_BASE = "http://localhost:8080/api/user";
-const TASK_API_BASE = "http://localhost:8080/api/tasks";
+const GLOBAL_API_BASE = process.env.REACT_APP_API_URL || "http://localhost:8080/api";
+const API_BASE = `${GLOBAL_API_BASE}/user`;
+const TASK_API_BASE = `${GLOBAL_API_BASE}/tasks`;
+
 const ENDPOINTS = {
   uploadPhoto:   `${API_BASE}/upload-photo`,
   updatePassword:`${API_BASE}/updatepassword`,
